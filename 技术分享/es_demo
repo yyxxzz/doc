@@ -1,0 +1,280 @@
+0x01 内存调整
+http://bigbo.github.io/pages/2015/04/10/elasticsearch_config/
+分词配置
+https://github.com/hangxin1940/elasticsearch-cn-out-of-box/blob/master/config/elasticsearch.yml
+
+http://chenlinux.com/tags.html#logstash-ref
+
+搜索命令：
+GET books/_mapping?pretty //搜索books索引里面的结构，每个字段的详细信息
+GET logstash-2015.04.22/_mapping?pretty //搜索logstash-2015.04.22索引里面的结构，每个字段的详细信息
+GET logstash-2015.04.22/_search?pretty//搜索logstash-2015.04.22所有的数据
+GET books/_search?pretty
+GET logstash-2015.04.09,logstash-2015.04.10/WindowsLog/_search?pretty //搜索logstash-2015.04.9与logstash-2015.04.10索引里下面类型为logstash-2015.04.10所有的数据
+****把登陆日志单独分离
+
+GET _search?pretty //查询全部的索引数据
+
+
+//分析索引，查看索引具体是什么
+GET logstash-2015.04.09/_analyze?field=message
+{
+'服务器超时'
+}
+//结果排序
+sort=字段:asc
+//结果排序 得分
+sort=字段:asc&track_source=true
+//设置超时：默认情况没有超时
+timeout=5s
+//查询结果窗口
+size5&from=10
+//小写扩展
+
+
+二.索引，分片，副本
+一般来说一个索引默认有5个分片，1个分片有1个副本
+
+//设置自动是否自动创建索引，自动创建索引的名字可能引发异常
+action.auto_create_index:false
+//创建已an，a开头的索引
+action.auto_create_index:-an*,+a*,-* 
+//手动设置分片与副本数量（创建一个xxx索引，1个分片2个副本）
+xput /xxx
+{
+	"settings":{
+		"number_of_shards":1, 
+		"number_of_replicas":2
+	}
+}
+
+//防止省略掉数据类型的相关信息，可以通设置numerice_detection:true
+PUT /XXX
+{
+	"mappings":
+		{
+			"numeric_detection":true
+		}
+}
+//设置数据格式
+PUT 
+{
+	"mappings":{
+		"dynamic_date_formats":["yyyy-MM-dd hh:mm"]
+	}
+}
+
+//设置每个字段的类型
+PUT
+{
+	"mappings":{
+	"article":{
+	"dynamic":"false",
+	"properties":{
+		"id":{"type":"string"}
+		"content":{"type":"string"}
+		"author":{"type":"string"}
+		}
+	  }
+	}
+}
+
+
+1.索引结构映射：
+PSOT /XXX你的索引 @post.json
+通过posts.json定义索引结构
+{
+	"mappings":{
+		"post":{
+			"properties":
+			{
+			   "id":{"type":"long","store":"yes","precision_step":"0"}
+			   "name":{"type":"string","store":"yes","index:"analyzed","precision_step":0}
+
+			}
+
+			}
+		}
+}
+
+
+三、段合并
+时间越长，越来越多的段被创建，因此，搜索性能会降低，（因为包括没有删除的文件）这时候就用段
+系统默认会有
+1.合并策略
+2.合并调度器
+3.合并因子
+
+四、elasticeearch搜索
+0.过滤字段查询
+{
+	"query":{ "query_string":{"query":"title:xxxxx"}}
+}
+
+
+分页属性 from从第多少条开始，默认为0,size，查询多少条，默认为10
+{
+	"from":9
+	"size":20
+	"query":{
+	}
+}
+
+1.文档版本属性 version：true
+2.过滤字段 fields 如果没有指定则：返回_source
+}
+GET /index-namewangwei2312/_search?pretty=true
+{
+ "fields": ["CheckId","Info","Tags"], 
+  "size": 2, 
+  "query": {"query_string": {
+    "query": "Tags!=\" \""
+  }}
+  
+}
+
+3.部分字段 include 和 exclude属性，可以基于属性来包含或排除字段，例如：查询已tt开头，排除已xx揭开它的字段
+{
+	
+}
+
+五，使用聚合
+1.聚合查询使用aggs 聚合使用stats key时候，使用的字段不能用字符串类型，key为terms 时候，使用字段能用字符串类型，
+例子：words统计每种AgentId聚合的而数量
+GET /hzins.applicationlog.2015.05.07/_search?search_type=count&pretty
+{
+    "aggs" : { 
+        "agentIds" : { 
+            "stats" : {
+              "field" : "ReceivedOnUtc" 
+            }
+        },
+    "words":{
+      "terms":{
+        "field":"AgentId"
+      }
+    }
+    }
+}
+
+2.聚合区分2种聚合:
+a.度量聚合,接收一个输入文档集，并生成至少一个统计值
+(min,max,sum,avg)聚合,不能为字符串类型字段
+value_count聚合,使用字符串的字段做聚合
+{
+"aggs": {
+      "number_of_items": {
+        "value_count": {
+          "field": "AgentId"
+        }
+      }
+    }
+}
+c.桶聚合
+terms聚合，字段中每个词条返回一个桶，这允许你生成字段每个值得统计
+"aggs": {
+    "availability": {
+      "terms": {
+        "field": "EventType"
+      }
+    }
+  }  
+
+
+
+****复杂例子：
+1.根据2个字段纬度聚合查询,且按创建时间排序
+GET hzins.applicationlog.2015.06.19/_search?search_type=count
+{
+    "aggs": {
+        "AgentIds": {
+            "terms": {
+              "size": 95, 
+                "field": "AgentId"
+            }, 
+            "aggs": {
+                "terms": {
+                    "terms": {
+                        "field": "EventType",
+                        "size": 90
+                    }
+                }
+            }
+        }
+    }
+    ,"sort": [
+     {
+       "CreateTime": {
+         "order": "asc"
+       }
+     }
+   ]
+}
+
+
+2.根据多个字段分割查询，且按创建时间排序
+GET hzins.applicationlog.2015.06.17test2/_search?pretty=true
+{ 
+  "from":1,
+  "size":50,
+  "query":
+  {
+    "bool": 
+    {
+      "must":
+      [
+        {
+          "term":
+          {
+            "EventType":
+            {
+              "value":"ERROR"
+              
+            }
+            }
+            }
+            ,
+            {
+              "term":
+              {
+                "AgentId":
+                {
+                  "value":"cps.jumi18.com"
+                  
+                } 
+                
+              } 
+              
+            }
+          
+            ]
+      
+  }
+    
+  }
+   ,"sort": [
+     {
+       "CreateTime": {
+         "order": "desc"
+       }
+     }
+   ]
+  
+}
+
+更多例子：
+GET hzins.applicationlog.2015.06.19/_search
+{ "from":0, "size":15,"query":{  "bool": {"must":[{"term":{ "EventType":{"value":"ERROR"} } },{"term":{ "AgentId":{"value":"m.hzins.com"} } },{"range":{"CreateTime":{"gte":"2015-06-23 00:00:00","lte":"2015-06-23 23:59:59"}}}]}},
+
+  "sort":[{"CreateTime":{"order":"desc"}}]
+
+}
+
+有时候可能属性没有生效则需要下面操作
+
+PUT hzins.applicationlog.2015.06.19test/hz_app_log/_mapping
+{
+  "properties": {
+    "CreateTime": {"type": "date", "format": "YYYY-MM-DD HH:mm:ss"}
+  }
+}

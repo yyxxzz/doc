@@ -1,0 +1,860 @@
+实现Repository, CrudRepository or PagingAndSortingRepository接口,
+或在类上添加@RepositoryDefinition注解,
+
+
+
+创建repository 实例:
+1.XML配置
+<?xml version="1.0" encoding="UTF-8"?>
+<beans:beans xmlns:beans="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns="http://www.springframework.org/schema/data/jpa"
+  xsi:schemaLocation="http://www.springframework.org/schema/beans
+    http://www.springframework.org/schema/beans/spring-beans.xsd
+    http://www.springframework.org/schema/data/jpa
+    http://www.springframework.org/schema/data/jpa/spring-jpa.xsd">
+  
+  <!-- repository-impl-postfix指定repository实现类的名称 == 接口名称 + impl,
+  repository-impl-postfix默认值就是impl
+  -->
+  <repositories base-package="com.acme.repositories" repository-impl-postfix="impl" />
+
+</beans:beans>
+
+2.自定义repository实现Repository,接口或其子接口,放在base-package包下
+
+
+
+
+
+java代码中获取repository实例对象:(有点类似于ApplicationContext.getBean(...)感觉)
+RepositoryFactorySupport factory = … // Instantiate factory here
+UserRepository repository = factory.getRepository(UserRepository.class);
+
+
+
+
+Spring Data 启用 Web支持:
+1.采用Java Config方式:
+@Configuration
+@EnableWebMvc
+@EnableSpringDataWebSupport
+class WebConfiguration  extends WebMvcConfigurationSupport  { }
+
+2.Spring XML配置方式:
+<bean class="org.springframework.data.web.config.SpringDataWebConfiguration" />
+
+
+
+
+Spring Data 默认web支持依赖的是SpringMVC:
+congtroller中实现分页查询:
+@Controller
+@RequestMapping("/users")
+public class UserController {
+
+  @Autowired UserRepository repository;
+
+  @RequestMapping
+  public String showUsers(Model model, Pageable pageable) {
+
+    model.addAttribute("users", repository.findAll(pageable));
+    return "users";
+  }
+}
+
+page:当前页码,从0开始
+page.size:每页显示几条
+page.sort:排序字段以及排序方式,默认升序asc
+     sort=age,desc
+     sort=age,asc
+     sort=age,desc&sort=id    //多个排序字段
+page.sort.dir
+
+
+controller中分页:
+注入Pageable参数
+@RequestMapping
+  public String showUsers(Model model, Pageable pageable) {
+Pageable对象默认的pageSize即每页显示条数为20,可以通过给Pageable添加@PageableDefaults(value="50")注解来修改
+
+
+
+
+
+返回JSON数据:
+HttpEntity<PagedResources<Person>> persons(Pageable pageable, 
+    PagedResourcesAssembler assembler) { 
+Page<Person> persons = repository.findAll(pageable); 
+    return new ResponseEntity<>(assembler.toResources(persons), HttpStatus.OK);
+客户端可能会接受类似这样的JSON数据:
+{ "links" : [ { "rel" : "next", 
+                "href" : "http://localhost:8080/persons?page=1&size=20 } 
+  ], 
+  "content" : [ 
+     … // 20 Person instances rendered here
+  ], 
+  "pageMetadata" : { 
+    "size" : 20, 
+    "totalElements" : 30, 
+    "totalPages" : 2, 
+    "number" : 0
+  } 
+}
+
+
+
+原始对象到领域模型对象之间的转换器注册:
+<mvc:annotation-driven conversion-service="conversionService" />
+
+<bean class="org.springframework.data.repository.support.DomainClassConverter">
+  <constructor-arg ref="conversionService" />
+</bean>
+
+
+
+
+分页参数解析器注册:
+1.Java Config方式:
+@Configuration
+public class WebConfig extends WebMvcConfigurationSupport {
+
+  @Override
+  public void configureMessageConverters(List<HttpMessageConverter<?>> converters) {
+    converters.add(new PageableHandlerArgumentResolver());
+  }
+}
+
+
+2.XML配置方式:
+<bean class="….web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter">
+  <property name="customArgumentResolvers">
+    <list>
+      <bean class="org.springframework.data.web.PageableHandlerArgumentResolver" />
+    </list>
+  </property>
+</bean>
+
+
+
+
+spring-data的maven依赖:
+<dependency>
+    <groupId>org.springframework.data</groupId>
+    <artifactId>spring-data-mongodb</artifactId>
+    <version>1.2.4
+</version>
+  </dependency>
+
+Spring的官方Maven仓库:
+<repositories>
+  <repository>
+    <id>spring-milestone</id>
+    <name>Spring Maven MILESTONE Repository</name>
+    <url>http://repo.springsource.org/libs-milestone</url>
+  </repository>
+</repositories>
+
+
+mongoDB的long4j配置:
+log4j.category.org.springframework.data.document.mongodb=DEBUG
+log4j.appender.stdout.layout.ConversionPattern=%d{ABSOLUTE} %5p %40.40c:%4L - %m%n
+
+
+
+
+
+
+Spring-data操作MongoDB的简单示例:
+MongoOperations mongoOps = new MongoTemplate(new Mongo(), "your-database-name");
+
+    mongoOps.insert(new Person("Joe", 34));
+
+    log.info(mongoOps.findOne(new Query(where("name").is("Joe")), Person.class));
+
+    mongoOps.dropCollection("person");
+
+
+
+
+
+
+Mongo实例注册:
+1.Java config方式:
+public class AppConfig {
+   public @Bean Mongo mongo() throws UnknownHostException {
+       return new Mongo(ip, port);
+   }
+} 
+
+2. Java config方式2:通过Spring的MongoFactoryBean实例获取
+public class AppConfig {
+     public @Bean MongoFactoryBean mongo() {
+          MongoFactoryBean mongo = new MongoFactoryBean();
+          mongo.setHost("localhost");
+          mongo.setPort(27017);
+          return mongo;
+     }
+}
+然后通过工厂bean的getObject()获取Mongo对象
+
+3.SPring XML配置方式:
+<beans xmlns="http://www.springframework.org/schema/beans"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns:context="http://www.springframework.org/schema/context"
+          xmlns:mongo="http://www.springframework.org/schema/data/mongo"
+          xsi:schemaLocation=
+          "http://www.springframework.org/schema/context
+          http://www.springframework.org/schema/context/spring-context-3.0.xsd
+          http://www.springframework.org/schema/data/mongo
+          http://www.springframework.org/schema/data/mongo/spring-mongo-1.0.xsd
+          http://www.springframework.org/schema/beans
+          http://www.springframework.org/schema/beans/spring-beans-3.0.xsd">
+
+    <!-- Default bean name is 'mongo' -->
+    <mongo:mongo host="localhost" port="27017"/>
+
+</beans>
+注意:必须引入上面的mongo命名空间
+下面是有关mongo数据库相关参数详细配置示例:
+ <mongo:mongo host="localhost" port="27017">
+    <mongo:options connections-per-host="8"
+                   threads-allowed-to-block-for-connection-multiplier="4"
+                   connect-timeout="1000"
+                   max-wait-time="1500}"
+                   auto-connect-retry="true"
+                   socket-keep-alive="true"
+                   socket-timeout="1500"
+                   slave-ok="true"
+                   write-number="1"
+                   write-timeout="0"
+                   write-fsync="true"/>
+  </mongo:mongo/>
+
+
+
+
+
+
+SimpleMongoDbFactory使用示例:
+public class MongoApp {
+
+  private static final Log log = LogFactory.getLog(MongoApp.class);
+
+  public static void main(String[] args) throws Exception {
+
+    MongoOperations mongoOps = new MongoTemplate(new SimpleMongoDbFactory(new Mongo(), "database"));
+
+    mongoOps.insert(new Person("Joe", 34));
+
+    log.info(mongoOps.findOne(new Query(where("name").is("Joe")), Person.class));
+
+    mongoOps.dropCollection("person");
+  }
+}
+
+
+
+
+MongoDBFactory实例注册:
+1. Java config方式:
+@Configuration
+public class MongoConfiguration {
+  
+  public @Bean MongoDbFactory mongoDbFactory() throws Exception {
+    return new SimpleMongoDbFactory(new Mongo(), "your-database-name");
+  }
+}
+
+2.Spring-XML配置方式:
+<context:property-placeholder location="classpath:/com/myapp/mongodb/config/mongo.properties"/>
+
+<mongo:mongo host="${mongo.host}" port="${mongo.port}">
+  <mongo:options
+     connections-per-host="${mongo.connectionsPerHost}"
+     threads-allowed-to-block-for-connection-multiplier="${mongo.threadsAllowedToBlockForConnectionMultiplier}"
+     connect-timeout="${mongo.connectTimeout}"
+     max-wait-time="${mongo.maxWaitTime}"
+     auto-connect-retry="${mongo.autoConnectRetry}"
+     socket-keep-alive="${mongo.socketKeepAlive}"
+     socket-timeout="${mongo.socketTimeout}"
+     slave-ok="${mongo.slaveOk}"
+     write-number="1"
+     write-timeout="0"
+     write-fsync="true"/>
+</mongo:mongo>
+
+<mongo:db-factory dbname="database" mongo-ref="mongo"/>
+
+<bean id="anotherMongoTemplate" class="org.springframework.data.mongodb.core.MongoTemplate">
+  <constructor-arg name="mongoDbFactory" ref="mongoDbFactory"/>
+</bean>
+
+
+
+
+spring-data的auditing配置:
+1.Java Config方式:
+@Configuration
+@EnableMongoAuditing
+class Config {
+
+    @Bean
+    public AuditorAware<AuditableUser> myAuditorProvider() {
+        return new AuditorAwareImpl();
+    }
+}
+
+2.Spring XML方式:
+<mongo:auditing mapping-context-ref="customMappingContext" auditor-aware-ref="yourAuditorAwareImpl"/>
+
+
+
+
+
+
+MongoTemplate模版类是线程安全的,MongoTemplate之于Mongo,类似于JDBCTemplate之于JDBC,都是Spring封装的工具类
+
+MongoTemplate的所有方法抛出的异常都是unchecked异常,即不用强制用户try..catch,Spring做这样处理,是不想让代码被try-catch丑陋化
+
+
+
+MongoTemplate实例注册:
+1.Java Config方式:
+@Configuration
+public class AppConfig {
+
+    public @Bean Mongo mongo() throws Exception {
+        return new Mongo("localhost");
+    }
+
+    public @Bean MongoTemplate mongoTemplate() throws Exception {
+        return new MongoTemplate(mongo(), "mydatabase");
+    }
+}
+
+2.Spring-XML配置方式:
+<bean id="mongoTemplate" class="org.springframework.data.mongodb.core.MongoTemplate">
+    <constructor-arg ref="mongo"/>
+    <constructor-arg name="databaseName" value="your-database-name"/>
+  </bean>
+
+
+
+
+WriteResultChecking Policy(MongoDB操作返回结果检测策略):
+即当mongoDB数据库操作发生异常时,告诉Spring-data该如何处理异常,默认是不处理
+WriteResultChecking Policy有如下枚举值:
+LOG : 记录日志
+EXCEPTION: 抛异常
+NONE:什么也不做,默认值为NONE
+
+
+
+
+
+mongoDB中若你insert一个object时未指定id,则默认生成一个_id Object,类似这样:
+{"_id":{"objectId": "xxxxxxxxxxxxxxxxxxxxxxxxxx"}}
+假定你有这样一个PO类
+public class Person {
+    private int id;
+    private String name;
+}
+要实现id属性的映射,spring-data提供了@id注解,注意包路径是:org.springframework.data.annotation.Id
+即:
+@id
+private int id;
+默认只要你的PO类中有名称叫id属性就会自动映射到MongoDB的_id属性,如果不是叫id,那就必须用@id注解
+
+如果你的id属性定义的是String类型,那么MappingMongoConverter类型转换器会首先尝试是否能够转换成
+MongoDB中的ObjectId对象类型,若不能,则会直接使用String类型存储到MongoDB数据库
+
+如果你的id属性定义的是Integer(或Long)类型,那么MappingMongoConverter类型转换器会首先尝试是否能够转换成MongoDB中的ObjectId对象类型,若不能转换,则MongoDB会自动添加_id属性,且未和PO类中任何属性映射
+
+
+
+当你insert一个PO对象时,如果PO对象里有依赖另一个PO对象时,MongoDB会自动帮我们生成一个_class属性,标识出当前的JSON Object在Java中的class类型,用例子说明可能比较形象:
+public class Sample {
+  Contact value;
+}
+
+public abstract class Contact { … }
+
+public class Person extends Contact { 
+    private int id;
+    private String name;
+}
+
+Sample sample = new Sample();
+Person person = new Person();
+person.setId(1);
+person.setName("John");
+sample.value = person;
+
+mongoTemplate.save(sample);
+
+{ "_class" : "com.acme.Sample",
+  "value" : { "_class" : "com.acme.Person","_id": {"objectId" : "1"},"name" : "john" }
+}
+
+默认MongoDB帮我们生成的_class属性值是java类的完整包路径,比如: com.xx.oo.Person
+如果你想改变这种默认行为,你可以使用@TypeAlias注解
+@TypeAlias("per")
+class Person {
+......
+}
+这样生成的_class属性可能是这样:
+{"_class" : "per"}
+
+
+
+
+Java对象里属性的数据类型和MongoDB里的数据类型之间的映射关系是通过MongoTypeMapper绑定的,
+如果你自定义的Java对象类型不在 MongoTypeMapper 支持范围内,你可能需要实现此接口自己实现两种
+类型之间的映射:
+然后在Spring XML中注册你自己的类型映射器:
+<mongo:mapping-converter type-mapper-ref="your-MongoTypeMapper-bean-name"/>
+
+<bean name="your-MongoTypeMapper-bean-name" class="your-MongoTypeMapper-class"/>
+
+
+
+MongoDB提供了insert和save两种保存java 对象到MongoDB数据库的方法:
+Person p = new Person("Bob", 33);
+mongoTemplate.insert(p);
+insert和save的细微区别:
+1. 当person对象没有指定id属性,则两者执行的操作没有区别,都是插入一条记录到MongDB的collection中,
+那默认插到哪个Collection里呢,Spring-data默认插到你的Java类名首字母小写的collection中,
+比如上面的mongoTemplate.insert(p);,那么实际默认就是插入到person中,我们知道MongoDB是会自动创建
+collection的,当然spring-data的MongoDBTemplate类的insert也提供了insert(class,collectionName)的重载
+第二个参数即满足你需要手工指定collection名称的需求,当然save也有同样的重载
+2.当person对象指定了id属性,即person.setId(1);
+那么insert会首先检查数据库是否存在相同id的数据,若存在则会抛异常
+而save则会对id相同的数据执行更新操作
+
+
+
+关于Spring-data提供的更新方法对MongoDB的 update的支持:
+Spring-data的Update提供了如下方法来支持MongoDB的各种update selector(更新操作符)
+对MongoDB的原生更新操作符不熟悉的,请参阅我写的MongoDB的常用命令.docx文档,里面有详细介绍,
+spring-data只不过是用java对这些操作符进行封装下,其实最终还是要生成你在cmd命令窗口敲的那么命令,
+在Java里我们当前希望是以面向对象的方式来操作MongoDB,
+看到Update类里提供的那些方法的名字就一目了然是对应到MongoDB中哪个update selector:
+updateFirst 更新符合匹配的第一个
+updateMulti 更新符合匹配的多个
+Update addToSet (String key, Object value)
+
+Update inc (String key, Number inc)
+
+Update pop (String key, Update.Position pos) 
+
+Update pull (String key, Object value)
+
+Update pullAll (String key, Object[] values)
+
+Update push (String key, Object value)
+
+Update pushAll (String key, Object[] values) 
+太多了我就不一一贴了,什么意思干什么用的,只要你熟悉了Mon个DB的原生更新操作符就一目了然咯
+
+
+
+
+
+介绍下MongoDBTemplate提供的findAndModify方法对MongoDB原生的findAndModify函数的支持:
+findAndModify(Query query, Update update, FindAndModifyOptions options, Class<T> entityClass, String collectionName);
+参数解释:
+query: 过滤参数,类似于SQL里的where条件,这里可以用spring-date提供的Where对象以OO的方式来构建query表达式,可以直接使用JSON字符串的方式构建,如果你习惯了cmd下敲命令,那么这种以字符串方式构建查询参数可能比较适合你.示例如下:
+BasicQuery query = new BasicQuery("{ age : { $lt : 50 }, accounts.balance : { $gt : 1000.00 }}");
+List<Person> result = mongoTemplate.find(query, Person.class); 
+
+udate:即更新参数,如:
+Update update = new Update().inc("age", 1); //表示age属性值加1
+options:对findAndmodify行为参数设置,对应到MongoDB原生的findAndModify函数的new和remove,upsert等参数,如:
+new FindAndModifyOptions().returnNew(true)  //即表示new参数设置为true,new参数为true表示执行findAndModify返回更新后的新对象,默认为false返回的是更新前的旧对象
+new FindAndModifyOptions().returnNew(true).upsert(true) //upsert参数设置为true表示当根据第一个query参数没有找到数据时,需要把第二个update参数对象插入到collection中,默认为false
+new FindAndModifyOptions().remove(true)  //即表示对根据第一个query参数匹配到的数据执行remove操作,即类似SQL里的delete from table where xxx,默认remove参数为false,
+总结:findModify方法包含了更新,删除,插入等操作,到底执行哪个操作,由FindAndModifyOptions参数配置决定
+entityClass:表示返回的DBObject应该映射到哪个Java Object
+collectionName:即告诉Spring-data你要操作哪个collection
+
+
+
+
+
+
+
+
+Spring data对MongoDB的map-reduce(类似于SQL里的存储过程)的支持:
+mongoDB的mapReduce命令示例:
+{ "_id" : ObjectId("4e5ff893c0277826074ec533"), "x" : [ "a", "b" ] }
+{ "_id" : ObjectId("4e5ff893c0277826074ec534"), "x" : [ "b", "c" ] }
+{ "_id" : ObjectId("4e5ff893c0277826074ec535"), "x" : [ "c", "d" ] }
+
+
+db.orders.mapReduce(
+    function () {
+        for (var i = 0; i < this.x.length; i++) {
+            emit(this.x[i], 1);
+        }
+    },
+    function (key, values) {
+    var sum = 0;
+    for (var i = 0; i < values.length; i++)
+        sum += values[i];
+    return sum;
+    }
+);
+返回:
+{ "_id" : "a", "value" : 1 }
+{ "_id" : "b", "value" : 2 }
+{ "_id" : "c", "value" : 2 }
+{ "_id" : "d", "value" : 1 }
+
+Spring-data API操作方式:
+MapReduceResults<ValueObject> results = mongoTemplate.mapReduce("your-collection-name", "classpath:map.js", "classpath:reduce.js", ValueObject.class);
+for (ValueObject valueObject : results) {
+  System.out.println(valueObject);
+}
+打印如下:
+ValueObject [id=a, value=1.0]
+ValueObject [id=b, value=2.0]
+ValueObject [id=c, value=2.0]
+ValueObject [id=d, value=1.0]
+
+ValueObject是一个普通的JavaBean
+public class ValueObject {
+  private String id;
+  private float value;
+
+MongoTemplate的mapReduce方法参数说明:
+第一个参数是你要操作的collection名称,
+第二个参数是要执行的function,可以直接用字符串指定js的function,也可以通过classpath指定类路径下的一个js文件,第三个参数跟第二个参数类似,分别对应MongoDB中原生的mapReduce命令的两个function参数,
+最后一个class类型表示数据库返回的DBObject类型自动转成java里的什么类型
+
+
+
+MongoTemplated对MongoDB原生的group函数支持:
+GroupByResults<XObject> results = mongoTemplate.group("your_collection-name", 
+                                                      GroupBy.key("分组属性").initialDocument("{ count: 0 }").reduceFunction("function(doc, prev) { prev.count += 1 }"), Your-XXOO-Object.class);
+返回的JSON数据类似这样
+{ 
+  "retval" : [ { "x" : 1.0 , "count" : 2.0} , 
+               { "x" : 2.0 , "count" : 1.0} , 
+               { "x" : 3.0 , "count" : 3.0} ] , 
+  "count" : 6.0 , 
+  "keys" : 3 , 
+  "ok" : 1.0
+}
+同理reduceFunction的参数也可以通过classpath引入一个外部的js文件,如:classpath:com/xx/oo/abc.js
+即表示reduceFunction里的function参数从外部的js文件读取,当你的function内容很长,在程序里拼接显得不利于以后维护,这是外部引入就觉得尤为重要.
+
+
+
+
+
+Spring-data对MongoDB的aggregate函数支持:
+Aggregation aggregation = newAggregation(
+    pipelineOP1(),
+    pipelineOP2(),
+    pipelineOPn()
+);
+
+AggregationResults<OutputType> results = mongoTemplate.aggregate(aggregation,"your-collection-name", XXOO.class);
+List<OutputType> mappedResult = results.getMappedResults();
+Aggregation类的具体构建请参看API文档
+
+
+
+
+Spring-data对$Projection 表达式的支持:
+project("name", "netPrice")             // {$project: {name: 1, netPrice: 1}}
+project().and("foo").as("bar")         // {$project: {bar: $foo}}
+project("a","b").and("foo").as("bar") // {$project: {a: 1, b: 1, bar: $foo}}
+
+
+
+
+
+
+下面是官方提供的6个有关Aggregate聚合统计方面的示例:
+class TagCount {
+ String tag;
+ int n;
+}
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+Aggregation agg = newAggregation(
+    project("tags"),
+    unwind("tags"),
+    group("tags").count().as("n"),
+    project("n").and("tag").previousOperation(),
+    sort(DESC, "n") 
+);
+
+AggregationResults<TagCount> results = mongoTemplate.aggregate(agg, "tags", TagCount.class);
+List<TagCount> tagCount = results.getMappedResults();
+
+********************************华丽的分割线**************************************************
+class ZipInfo {
+   String id;
+   String city;
+   String state;
+   @Field("pop") int population;
+   @Field("loc") double[] location;
+}
+
+class City {
+   String name;
+   int population;
+}
+
+class ZipInfoStats {
+   String id;
+   String state;
+   City biggestCity;
+   City smallestCity;
+}
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+TypedAggregation<ZipInfo> aggregation = newAggregation(ZipInfo.class,
+    group("state", "city")
+       .sum("population").as("pop"),
+    sort(ASC, "pop", "state", "city"),
+    group("state")
+       .last("city").as("biggestCity")
+       .last("pop").as("biggestPop")
+       .first("city").as("smallestCity")
+       .first("pop").as("smallestPop"),
+    project()
+       .and("state").previousOperation()
+       .and("biggestCity")
+          .nested(bind("name", "biggestCity").and("population", "biggestPop"))
+       .and("smallestCity")
+          .nested(bind("name", "smallestCity").and("population", "smallestPop")),
+    sort(ASC, "state")
+);
+
+AggregationResults<ZipInfoStats> result = mongoTemplate.aggregate(aggregation, ZipInfoStats.class);
+ZipInfoStats firstZipInfoStats = result.getMappedResults().get(0);
+
+
+********************************华丽的分割线**************************************************
+
+class StateStats {
+   @Id String id;
+   String state;
+   @Field("totalPop") int totalPopulation;
+}
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+TypedAggregation<ZipInfo> agg = newAggregation(ZipInfo.class,
+    group("state").sum("population").as("totalPop"),
+    sort(ASC, previousOperation(), "totalPop"),
+    match(where("totalPop").gte(10 * 1000 * 1000))
+);
+
+AggregationResults<StateStats> result = mongoTemplate.aggregate(agg, StateStats.class);
+List<StateStats> stateStatsList = result.getMappedResults();
+
+
+********************************华丽的分割线**************************************************
+
+class Product {
+    String id;
+    String name;
+    double netPrice;
+    int spaceUnits;
+}
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+TypedAggregation<Product> agg = newAggregation(Product.class,
+    project("name", "netPrice")
+        .and("netPrice").plus(1).as("netPricePlus1")
+        .and("netPrice").minus(1).as("netPriceMinus1")
+        .and("netPrice").multiply(1.19).as("grossPrice")
+        .and("netPrice").divide(2).as("netPriceDiv2")
+        .and("spaceUnits").mod(2).as("spaceUnitsMod2")
+);
+
+AggregationResults<DBObject> result = mongoTemplate.aggregate(agg, DBObject.class);
+List<DBObject> resultList = result.getMappedResults();
+
+********************************华丽的分割线**************************************************
+
+class Product {
+    String id;
+    String name;
+    double netPrice;
+    int spaceUnits;
+}
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+TypedAggregation<Product> agg = newAggregation(Product.class,
+    project("name", "netPrice")
+        .andExpression("netPrice + 1").as("netPricePlus1")
+        .andExpression("netPrice - 1").as("netPriceMinus1")
+        .andExpression("netPrice / 2").as("netPriceDiv2")
+        .andExpression("netPrice * 1.19").as("grossPrice")
+        .andExpression("spaceUnits % 2").as("spaceUnitsMod2")
+        .andExpression("(netPrice * 0.8  + 1.2) * 1.19").as("grossPriceIncludingDiscountAndCharge")
+
+);
+
+AggregationResults<DBObject> result = mongoTemplate.aggregate(agg, DBObject.class);
+List<DBObject> resultList = result.getMappedResults();
+
+********************************华丽的分割线**************************************************
+
+
+class Product {
+    String id;
+    String name;
+    double netPrice;
+    int spaceUnits;
+}
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+double shippingCosts = 1.2;
+
+TypedAggregation<Product> agg = newAggregation(Product.class,
+    project("name", "netPrice")
+        .andExpression("(netPrice * (1-discountRate)  + [0]) * (1+taxRate)", shippingCosts).as("salesPrice")
+);
+
+AggregationResults<DBObject> result = mongoTemplate.aggregate(agg, DBObject.class);
+List<DBObject> resultList = result.getMappedResults();
+
+
+
+
+
+
+
+自定义DBObject与自定义PO之间的类型转换器:
+public class PersonWriteConverter implements Converter<Person, DBObject> {
+
+  public DBObject convert(Person source) {
+    DBObject dbo = new BasicDBObject();
+    dbo.put("_id", source.getId());
+    dbo.put("name", source.getFirstName());
+    dbo.put("age", source.getAge());
+    return dbo;
+  }
+}
+自定义转换器注册:
+<mongo:mapping-converter>
+  <mongo:custom-converters>
+    <mongo:converter ref="writeConverter"/>
+  </mongo:custom-converters>
+</mongo:mapping-converter>
+
+
+
+
+为collection创建索引:
+mongoTemplate.indexOps(Person.class).ensureIndex(new Index().on("name",Order.ASCENDING));   
+
+
+查询索引:
+template.indexOps(Person.class).ensureIndex(new Index().on("age", Order.DESCENDING).unique(Duplicates.DROP));
+List<IndexInfo> indexInfoList = template.indexOps(Person.class).getIndexInfo();
+Duplicates:表示重复索引的处理策略,drop表示重复的删除
+
+
+
+MongoTemplate也封装了MongoDB-java驱动中Mongo.runCommand()方法:
+CommandResult executeCommand (DBObject command)
+
+CommandResult executeCommand (String jsonCommand)
+
+
+
+Spring-data为Mongo的生命周期设计了事件监听器:AbstractMongoEventListener:
+可以在mongo的每个生命周期开始或结束时刻,动态嵌入一段代码:
+事件有:
+onBeforeConvert    java对象转成成MongoDB中的DBObject之前
+onBeforeSave       在insert之前
+onAfterSave        insert之后
+onAfterConvert     java对象转成成MongoDB中的DBObject之后
+
+
+
+
+
+
+
+
+
+
+Spring配置文件中注册MongoTemplate:
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:mongo="http://www.springframework.org/schema/data/mongo"
+  xsi:schemaLocation="http://www.springframework.org/schema/beans
+    http://www.springframework.org/schema/beans/spring-beans-3.0.xsd
+    http://www.springframework.org/schema/data/mongo
+    http://www.springframework.org/schema/data/mongo/spring-mongo-1.0.xsd">
+
+  <mongo:mongo id="mongo" />
+  
+  <bean id="mongoTemplate" class="org.springframework.data.mongodb.core.MongoTemplate">
+    <constructor-arg ref="mongo" />
+    <constructor-arg value="databaseName" />
+  </bean>
+
+  <mongo:repositories base-package="com.acme.*.repositories" />
+
+</beans>
+注意:mongo命名空间必须要引入
+
+
+
+
+用方法名语义来代替接口实现:
+GreaterThan                            findByAgeGreaterThan(int age) {"age" : {"$gt" : age}} 
+LessThan                               findByAgeLessThan(int age) {"age" : {"$lt" : age}} 
+Between                                findByAgeBetween(int from, int to) {"age" : {"$gt" : from, "$lt" : to}} 
+IsNotNull, NotNull                     findByFirstnameNotNull() {"age" : {"$ne" : null}} 
+IsNull, Null                           findByFirstnameNull() {"age" : null} 
+Like                                   findByFirstnameLike(String name) {"age" : age} ( age as regex) 
+Regex                                  findByFirstnameRegex(String firstname) {"firstname" : {"$regex" : firstname }} 
+(No keyword)                           findByFirstname(String name) {"age" : name} 
+Not                                    findByFirstnameNot(String name) {"age" : {"$ne" : name}} 
+Near                                   findByLocationNear(Point point) {"location" : {"$near" : [x,y]}} 
+Within                                 findByLocationWithin(Circle circle) {"location" : {"$within" : {"$center" : [ [x, y], distance]}}} 
+Within                                 findByLocationWithin(Box box) {"location" : {"$within" : {"$box" : [ [x1, y1], x2, y2]}}}True 
+IsTrue, True                           findByActiveIsTrue() {"active" : true} 
+IsFalse, False                         findByActiveIsFalse() {"active" : false} 
+Exists                                 findByLocationExists(boolean exists) {"location" : {"$exists" : exists }} 
+
+
+
+
+
+
+
+
+Spring-data对Log4J的支持:
+配置样例:
+log4j.rootCategory=INFO, stdout
+
+log4j.appender.stdout=org.springframework.data.document.mongodb.log4j.MongoLog4jAppender
+log4j.appender.stdout.layout=org.apache.log4j.PatternLayout
+log4j.appender.stdout.layout.ConversionPattern=%d %p [%c] - <%m>%n
+log4j.appender.stdout.host = localhost 
+log4j.appender.stdout.port = 27017
+log4j.appender.stdout.database = logs
+log4j.appender.stdout.collectionPattern = %X{year}%X{month}
+log4j.appender.stdout.applicationId = my.application
+log4j.appender.stdout.warnOrHigherWriteConcern = FSYNC_SAFE
+
+log4j.category.org.apache.activemq=ERROR
+log4j.category.org.springframework.batch=DEBUG
+log4j.category.org.springframework.data.document.mongodb=DEBUG
+log4j.category.org.springframework.transaction=INFO
+
+
+
+
